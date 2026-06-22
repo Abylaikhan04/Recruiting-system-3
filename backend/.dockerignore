@@ -1,0 +1,13 @@
+.git
+.gitignore
+.gitattributes
+.editorconfig
+node_modules
+vendor
+storage/logs
+.env
+.env.*
+!.env.example
+tests
+*.md
+.phpunit.result.cache

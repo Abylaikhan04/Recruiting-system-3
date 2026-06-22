@@ -18,7 +18,7 @@ class VacancyController extends Controller
             }
         }
         if ($request->filled('search')) {
-            $query->where('title', 'like', '%'.$request->string('search').'%');
+            $query->where('title', 'ilike', '%'.$request->string('search').'%');
         }
 
         return response()->json($query->latest()->get());

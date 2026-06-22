@@ -310,8 +310,8 @@ function MultiAttachModal({ vacancy, onClose, onDone }: { vacancy: Vacancy; onCl
         update(entryId, { loading: false })
       }
     }
-    // remove initial empty entry if it's the only one and nothing was typed
-    setEntries((e) => e.filter((x) => !(x.id !== entryId && x.name === '' && x.text === '')))
+    // remove initial empty placeholder entry now that files have been added
+    setEntries((e) => e.filter((x) => x.name !== '' || x.text !== '' || x.loading))
   }
 
   const submit = async () => {

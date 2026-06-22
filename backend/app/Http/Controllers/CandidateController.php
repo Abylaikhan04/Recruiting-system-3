@@ -15,7 +15,7 @@ class CandidateController extends Controller
         $user = $request->user();
 
         $query = Candidate::query()
-            ->with(['recruiter:id,name', 'vacancy:id,title', 'latestAnalysis:id,candidate_id,score']);
+            ->with(['recruiter:id,name', 'vacancy:id,title', 'latestAnalysis']);
 
         // Recruiters see only their own; admins see all (can filter by recruiter)
         if (! $user->isAdmin()) {
@@ -27,9 +27,9 @@ class CandidateController extends Controller
         if ($request->filled('search')) {
             $s = $request->string('search');
             $query->where(function ($q) use ($s) {
-                $q->where('full_name', 'like', "%$s%")
-                    ->orWhere('phone', 'like', "%$s%")
-                    ->orWhere('position', 'like', "%$s%");
+                $q->where('full_name', 'ilike', "%$s%")
+                    ->orWhere('phone', 'ilike', "%$s%")
+                    ->orWhere('position', 'ilike', "%$s%");
             });
         }
 

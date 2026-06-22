@@ -119,8 +119,8 @@ export default function CandidateDetail() {
                 <div><label className="label">Телефон</label><input className="input" defaultValue={c.phone ?? ''} onBlur={(e) => e.target.value !== (c.phone ?? '') && updateField('phone', e.target.value)} /></div>
                 <div><label className="label">Город</label><input className="input" defaultValue={c.city ?? ''} onBlur={(e) => e.target.value !== (c.city ?? '') && updateField('city', e.target.value)} /></div>
                 <div><label className="label">Email</label><input className="input" type="email" defaultValue={c.email ?? ''} onBlur={(e) => e.target.value !== (c.email ?? '') && updateField('email', e.target.value)} /></div>
-                <div><label className="label">Возраст</label><input type="number" min={16} max={80} className="input" defaultValue={c.age ?? ''} onBlur={(e) => updateField('age', e.target.value ? parseInt(e.target.value) : null)} /></div>
-                <div className="col-span-2"><label className="label">Telegram</label><input className="input" placeholder="@username" defaultValue={c.telegram ?? ''} onBlur={(e) => e.target.value !== (c.telegram ?? '') && updateField('telegram', e.target.value || null)} /></div>
+                <div><label className="label">Возраст</label><input type="number" min={16} max={80} className="input" defaultValue={c.age ?? ''} onBlur={(e) => updateField('age', e.target.value)} /></div>
+                <div className="col-span-2"><label className="label">Telegram</label><input className="input" placeholder="@username" defaultValue={c.telegram ?? ''} onBlur={(e) => e.target.value !== (c.telegram ?? '') && updateField('telegram', e.target.value || '')} /></div>
               </div>
               <div><label className="label">Источник</label><select className="input" value={c.source ?? ''} onChange={(e) => updateField('source', e.target.value)}><option value="">—</option>{SOURCES.map((s) => <option key={s}>{s}</option>)}</select></div>
               {c.stage === 'rejected' && (
