@@ -16,7 +16,10 @@ class UserController extends Controller
             $query->where('role', $request->input('role'));
         }
 
-        return response()->json($query->get(['id', 'name', 'email', 'role', 'position', 'phone', 'department_id']));
+        return response()->json($query->paginate(
+            $request->integer('per_page', 20),
+            ['id', 'name', 'email', 'role', 'position', 'phone', 'department_id']
+        ));
     }
 
     public function store(Request $request)

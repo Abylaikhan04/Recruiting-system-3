@@ -1,0 +1,81 @@
+# Production nginx config for the frontend/edge container.
+# Rendered from this template by the official nginx:1.27-alpine entrypoint
+# (envsubst-on-templates.sh) using container environment variables — only
+# ${DOMAIN} is substituted, nginx's own $-variables are left untouched
+# because they are not present in the container environment.
+
+# ── Plain HTTP: ACME challenge + redirect everything else to HTTPS ───────
+server {
+    listen      80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ── HTTPS ──────────────────────────────────────────────────────────────
+server {
+    listen      443 ssl;
+    http2       on;
+    server_name ${DOMAIN};
+    root        /usr/share/nginx/html;
+    index       index.html;
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # ── Compression ──────────────────────────────────────────────────────
+    gzip              on;
+    gzip_vary         on;
+    gzip_min_length   1024;
+    gzip_comp_level   6;
+    gzip_types        text/plain text/css text/xml
+                      application/json application/javascript
+                      application/xml+rss image/svg+xml;
+
+    # ── Security headers ─────────────────────────────────────────────────
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Frame-Options          "SAMEORIGIN"                      always;
+    add_header X-Content-Type-Options   "nosniff"                         always;
+    add_header X-XSS-Protection         "1; mode=block"                   always;
+    add_header Referrer-Policy          "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy       "geolocation=(), camera=()"       always;
+
+    # ── API proxy → backend nginx → PHP-FPM ──────────────────────────────
+    location /api/ {
+        proxy_pass            http://nginx/api/;
+        proxy_http_version    1.1;
+        proxy_set_header      Host              $http_host;
+        proxy_set_header      X-Real-IP         $remote_addr;
+        proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header      X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout    30s;
+        proxy_send_timeout    10s;
+    }
+
+    # ── SPA fallback ─────────────────────────────────────────────────────
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ── Long-term cache for fingerprinted static assets ──────────────────
+    location ~* \.(?:js|css|woff2?|ttf|eot|svg|png|jpe?g|gif|ico|webp)$ {
+        expires    1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+}

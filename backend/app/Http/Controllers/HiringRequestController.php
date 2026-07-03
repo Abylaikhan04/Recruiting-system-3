@@ -22,7 +22,7 @@ class HiringRequestController extends Controller
             $query->where('status', $request->input('status'));
         }
 
-        return response()->json($query->latest()->get());
+        return response()->json($query->latest()->paginate($request->integer('per_page', 20)));
     }
 
     public function store(Request $request)

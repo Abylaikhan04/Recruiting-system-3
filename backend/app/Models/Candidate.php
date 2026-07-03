@@ -2,13 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Candidate extends Model
 {
+    use Auditable, HasFactory, SoftDeletes;
+
     protected $fillable = [
         'full_name', 'phone', 'email', 'organization', 'city', 'department',
         'position', 'source', 'stage', 'status', 'rejection_reason', 'comment',

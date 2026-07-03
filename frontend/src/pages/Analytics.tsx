@@ -14,42 +14,52 @@ interface AnalyticsData {
   total_hired: number
 }
 
+type ReportKey = 'funnel' | 'source' | 'city' | 'recruiters'
+
 export default function Analytics() {
   const [data, setData] = useState<AnalyticsData | null>(null)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [exporting, setExporting] = useState<ReportKey | null>(null)
+
+  const params = () => {
+    const p: Record<string, string> = {}
+    if (dateFrom) p.date_from = dateFrom
+    if (dateTo) p.date_to = dateTo
+    return p
+  }
 
   useEffect(() => {
-    api.get('/analytics').then((r) => {
+    api.get('/analytics', { params: params() }).then((r) => {
       const d = r.data
-      // API returns arrays [{stage,count}], [{source,count}], [{city,count}]
-      // Normalize to Record<string, number> that the component expects
-      const funnel: Record<string, number> = {}
-      ;(d.funnel ?? []).forEach((x: any) => { funnel[x.stage] = x.count })
-
-      const by_source: Record<string, number> = {}
-      ;(d.by_source ?? []).forEach((x: any) => { by_source[x.source] = x.count })
-
-      const by_city: Record<string, number> = {}
-      ;(d.by_city ?? []).forEach((x: any) => { by_city[x.city] = x.count })
-
-      const recruiters = (d.recruiters ?? []).map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        candidates: r.total ?? r.candidates ?? 0,
-        hired: r.hired ?? 0,
-        conversion: r.conversion ?? 0,
-      }))
-
       setData({
-        funnel,
-        by_source,
-        by_city,
-        recruiters,
-        total_candidates: d.totals?.total ?? d.total_candidates ?? 0,
-        total_hired: d.totals?.hired ?? d.total_hired ?? 0,
-        conversion: d.totals?.conversion ?? d.conversion ?? 0,
+        funnel: d.funnel ?? {},
+        by_source: d.by_source ?? {},
+        by_city: d.by_city ?? {},
+        recruiters: d.recruiters ?? [],
+        total_candidates: d.total_candidates ?? 0,
+        total_hired: d.total_hired ?? 0,
+        conversion: d.conversion ?? 0,
       })
     })
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateFrom, dateTo])
+
+  const exportReport = async (report: ReportKey) => {
+    setExporting(report)
+    try {
+      const r = await api.get('/analytics/export', { params: { ...params(), report }, responseType: 'blob' })
+      const blob = new Blob([r.data], { type: 'text/csv' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `analytics_${report}.csv`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } finally {
+      setExporting(null)
+    }
+  }
+
   if (!data) return <LoadingState />
 
   const maxFunnel = Math.max(1, ...Object.values(data.funnel))
@@ -57,6 +67,34 @@ export default function Analytics() {
   return (
     <div>
       <PageHeader title="Аналитика" subtitle="Воронка, конверсия и эффективность рекрутеров" />
+
+      <div className="card mb-6 flex flex-wrap items-end gap-4 p-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500">Дата от</label>
+          <input
+            type="date"
+            className="input"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-slate-500">Дата до</label>
+          <input
+            type="date"
+            className="input"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </div>
+        {(dateFrom || dateTo) && (
+          <button className="btn-outline" onClick={() => { setDateFrom(''); setDateTo('') }}>
+            Сбросить период
+          </button>
+        )}
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         {[
@@ -70,7 +108,12 @@ export default function Analytics() {
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="card p-5">
-          <h3 className="mb-4 font-semibold">Воронка подбора</h3>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-semibold">Воронка подбора</h3>
+            <button className="btn-outline text-xs" disabled={exporting === 'funnel'} onClick={() => exportReport('funnel')}>
+              {exporting === 'funnel' ? 'Экспорт…' : 'Экспорт CSV'}
+            </button>
+          </div>
           <div className="space-y-3">
             {STAGES.map((s) => {
               const val = data.funnel[s.value] ?? 0
@@ -90,7 +133,12 @@ export default function Analytics() {
         </div>
 
         <div className="card p-5">
-          <h3 className="mb-4 font-semibold">Источники кандидатов</h3>
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-semibold">Источники кандидатов</h3>
+            <button className="btn-outline text-xs" disabled={exporting === 'source'} onClick={() => exportReport('source')}>
+              {exporting === 'source' ? 'Экспорт…' : 'Экспорт CSV'}
+            </button>
+          </div>
           <div className="space-y-2">
             {Object.entries(data.by_source).map(([src, n]) => (
               <div key={src} className="flex items-center justify-between text-sm">
@@ -101,7 +149,12 @@ export default function Analytics() {
             {Object.keys(data.by_source).length === 0 && <div className="text-sm text-slate-400">Нет данных</div>}
           </div>
 
-          <h3 className="mb-3 mt-6 font-semibold">По городам</h3>
+          <div className="mb-3 mt-6 flex items-center justify-between">
+            <h3 className="font-semibold">По городам</h3>
+            <button className="btn-outline text-xs" disabled={exporting === 'city'} onClick={() => exportReport('city')}>
+              {exporting === 'city' ? 'Экспорт…' : 'Экспорт CSV'}
+            </button>
+          </div>
           <div className="space-y-2">
             {Object.entries(data.by_city).map(([city, n]) => (
               <div key={city} className="flex items-center justify-between text-sm">
@@ -114,7 +167,12 @@ export default function Analytics() {
       </div>
 
       <div className="card mt-6 overflow-hidden">
-        <h3 className="border-b border-slate-200 px-5 py-3.5 font-semibold">Эффективность рекрутеров</h3>
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <h3 className="font-semibold">Эффективность рекрутеров</h3>
+          <button className="btn-outline text-xs" disabled={exporting === 'recruiters'} onClick={() => exportReport('recruiters')}>
+            {exporting === 'recruiters' ? 'Экспорт…' : 'Экспорт CSV'}
+          </button>
+        </div>
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase text-slate-400">
             <tr>

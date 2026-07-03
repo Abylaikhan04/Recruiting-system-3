@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HiringRequest extends Model
 {
+    use Auditable;
+
     protected $fillable = [
         'title', 'department_id', 'city', 'position', 'headcount', 'description',
         'requirements', 'salary_range', 'priority', 'status', 'requested_by',

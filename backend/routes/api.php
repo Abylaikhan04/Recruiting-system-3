@@ -9,9 +9,26 @@ use App\Http\Controllers\HiringRequestController;
 use App\Http\Controllers\MeetingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\VacancyController;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/login', [AuthController::class, 'login']);
+Route::get('/health', function () {
+    try {
+        DB::connection()->getPdo();
+
+        return response()->json([
+            'status' => 'ok',
+            'database' => 'connected',
+        ], 200);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'error',
+            'database' => 'unavailable',
+        ], 503);
+    }
+});
+
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
@@ -19,18 +36,25 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/dashboard', [DashboardController::class, 'index']);
     Route::get('/analytics', [AnalyticsController::class, 'index']);
+    Route::get('/analytics/export', [AnalyticsController::class, 'export']);
     Route::get('/departments', [UserController::class, 'departments']);
 
     // Candidates
     Route::get('/candidates', [CandidateController::class, 'index']);
     Route::post('/candidates', [CandidateController::class, 'store']);
     Route::post('/candidates/bulk-import', [CandidateController::class, 'bulkImport']);
+    Route::post('/candidates/bulk-export', [CandidateController::class, 'bulkExport']);
+    Route::post('/candidates/bulk-assign-recruiter', [CandidateController::class, 'bulkAssignRecruiter']);
+    Route::post('/candidates/bulk-status-update', [CandidateController::class, 'bulkStatusUpdate']);
     Route::post('/candidates/analyze-batch', [CandidateController::class, 'analyzeBatch']);
     Route::get('/candidates/{candidate}', [CandidateController::class, 'show']);
     Route::put('/candidates/{candidate}', [CandidateController::class, 'update']);
     Route::delete('/candidates/{candidate}', [CandidateController::class, 'destroy']);
     Route::post('/candidates/{candidate}/analyze', [CandidateController::class, 'analyze']);
+    Route::get('/candidates/{candidate}/notes', [CandidateNoteController::class, 'index']);
     Route::post('/candidates/{candidate}/notes', [CandidateNoteController::class, 'store']);
+    Route::post('/candidates/{candidate}/resume', [CandidateController::class, 'uploadResume']);
+    Route::post('/parse-pdf', [CandidateController::class, 'parsePdf']);
 
     // Vacancies
     Route::get('/vacancies', [VacancyController::class, 'index']);

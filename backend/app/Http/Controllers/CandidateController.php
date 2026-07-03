@@ -7,9 +7,16 @@ use App\Models\Candidate;
 use App\Models\CandidateHistory;
 use App\Services\AiService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Smalot\PdfParser\Parser as PdfParser;
 
 class CandidateController extends Controller
 {
+    /**
+     * Max resume file size in kilobytes (10 MB).
+     */
+    private const MAX_RESUME_KB = 10240;
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -46,8 +53,10 @@ class CandidateController extends Controller
         return response()->json($query->paginate($request->integer('per_page', 20)));
     }
 
-    public function show(Candidate $candidate)
+    public function show(Request $request, Candidate $candidate)
     {
+        abort_unless($request->user()->isAdmin() || $candidate->recruiter_id === $request->user()->id, 403);
+
         return response()->json(
             $candidate->load([
                 'recruiter:id,name',
@@ -86,6 +95,8 @@ class CandidateController extends Controller
 
     public function update(Request $request, Candidate $candidate)
     {
+        abort_unless($request->user()->isAdmin() || $candidate->recruiter_id === $request->user()->id, 403);
+
         $data = $request->validate([
             'full_name' => ['sometimes', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
@@ -133,8 +144,10 @@ class CandidateController extends Controller
         return response()->json($candidate->fresh(['history.user:id,name']));
     }
 
-    public function destroy(Candidate $candidate)
+    public function destroy(Request $request, Candidate $candidate)
     {
+        abort_unless($request->user()->isAdmin() || $candidate->recruiter_id === $request->user()->id, 403);
+
         $candidate->delete();
 
         return response()->json(['message' => 'Удалено']);
@@ -170,6 +183,164 @@ class CandidateController extends Controller
             'count' => count($created),
             'candidates' => $created,
         ], 201);
+    }
+
+    /**
+     * Export candidates to CSV: either a specific list of ids, or the current
+     * filter set (same filters as index()). Respects owner scoping.
+     */
+    public function bulkExport(Request $request)
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'ids' => ['nullable', 'array'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $query = Candidate::query()->with(['recruiter:id,name']);
+
+        if (! $user->isAdmin()) {
+            $query->where('recruiter_id', $user->id);
+        } elseif ($request->filled('recruiter_id')) {
+            $query->where('recruiter_id', $request->integer('recruiter_id'));
+        }
+
+        if (! empty($data['ids'])) {
+            $query->whereIn('id', $data['ids']);
+        } else {
+            if ($request->filled('search')) {
+                $s = $request->string('search');
+                $query->where(function ($q) use ($s) {
+                    $q->where('full_name', 'ilike', "%$s%")
+                        ->orWhere('phone', 'ilike', "%$s%")
+                        ->orWhere('position', 'ilike', "%$s%");
+                });
+            }
+            foreach (['stage', 'status', 'city', 'department', 'source', 'vacancy_id'] as $f) {
+                if ($request->filled($f)) {
+                    $query->where($f, $request->input($f));
+                }
+            }
+        }
+
+        $candidates = $query->orderBy('created_at', 'desc')->get();
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="candidates_export.csv"',
+        ];
+
+        return response()->streamDownload(function () use ($candidates) {
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM for Excel
+            fputcsv($out, ['ФИО', 'Телефон', 'Email', 'Город', 'Должность', 'Источник', 'Этап', 'Статус', 'Рекрутер']);
+            foreach ($candidates as $c) {
+                fputcsv($out, [
+                    $c->full_name, $c->phone, $c->email, $c->city, $c->position,
+                    $c->source, $c->stage, $c->status, $c->recruiter?->name,
+                ]);
+            }
+            fclose($out);
+        }, 'candidates_export.csv', $headers);
+    }
+
+    /**
+     * Bulk-reassign the recruiter of multiple candidates. Admin only.
+     */
+    public function bulkAssignRecruiter(Request $request)
+    {
+        abort_unless($request->user()->isAdmin(), 403);
+
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:candidates,id'],
+            'recruiter_id' => ['required', 'integer', 'exists:users,id'],
+        ]);
+
+        $candidates = Candidate::whereIn('id', $data['ids'])->get();
+
+        foreach ($candidates as $c) {
+            if ($c->recruiter_id != $data['recruiter_id']) {
+                CandidateHistory::create([
+                    'candidate_id' => $c->id,
+                    'user_id' => $request->user()->id,
+                    'field' => 'recruiter_id',
+                    'from_value' => (string) $c->recruiter_id,
+                    'to_value' => (string) $data['recruiter_id'],
+                ]);
+                $c->update(['recruiter_id' => $data['recruiter_id']]);
+            }
+        }
+
+        return response()->json([
+            'message' => 'Рекрутер назначен для: '.$candidates->count(),
+            'count' => $candidates->count(),
+        ]);
+    }
+
+    /**
+     * Bulk-update stage/status of multiple candidates. Recruiters can only
+     * update their own candidates; ids they don't own are silently skipped.
+     */
+    public function bulkStatusUpdate(Request $request)
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:candidates,id'],
+            'stage' => ['nullable', 'string'],
+            'status' => ['nullable', 'string'],
+        ]);
+
+        if (! isset($data['stage']) && ! isset($data['status'])) {
+            throw ValidationException::withMessages(['stage' => 'Укажите stage или status']);
+        }
+
+        $query = Candidate::whereIn('id', $data['ids']);
+        if (! $user->isAdmin()) {
+            $query->where('recruiter_id', $user->id);
+        }
+        $candidates = $query->get();
+
+        $map = [
+            'hired' => 'hired',
+            'rejected' => 'rejected',
+            'phone' => 'interview', 'tech' => 'interview', 'final' => 'interview',
+        ];
+
+        foreach ($candidates as $c) {
+            $update = [];
+            if (isset($data['stage'])) {
+                $update['stage'] = $data['stage'];
+                $update['status'] = $data['status'] ?? ($map[$data['stage']] ?? 'active');
+            } elseif (isset($data['status'])) {
+                $update['status'] = $data['status'];
+            }
+
+            foreach (['stage', 'status'] as $field) {
+                if (isset($update[$field]) && $c->$field != $update[$field]) {
+                    CandidateHistory::create([
+                        'candidate_id' => $c->id,
+                        'user_id' => $user->id,
+                        'field' => $field,
+                        'from_value' => (string) $c->$field,
+                        'to_value' => (string) $update[$field],
+                    ]);
+                }
+            }
+
+            $c->update($update);
+        }
+
+        $skipped = count($data['ids']) - $candidates->count();
+
+        return response()->json([
+            'message' => 'Обновлено: '.$candidates->count().($skipped > 0 ? ", пропущено (не ваши): $skipped" : ''),
+            'count' => $candidates->count(),
+            'skipped' => $skipped,
+        ]);
     }
 
     /**
@@ -224,5 +395,80 @@ class CandidateController extends Controller
             'message' => 'Проанализировано: '.$candidates->count(),
             'count' => $candidates->count(),
         ]);
+    }
+
+    /**
+     * Upload a candidate's resume as a PDF file: stores it in private storage
+     * (fills resume_path) and extracts its text (fills resume_text).
+     */
+    public function uploadResume(Request $request, Candidate $candidate)
+    {
+        abort_unless($request->user()->isAdmin() || $candidate->recruiter_id === $request->user()->id, 403);
+
+        $request->validate([
+            'resume' => ['required', 'file', 'mimes:pdf', 'max:'.self::MAX_RESUME_KB],
+        ]);
+
+        $file = $request->file('resume');
+        $path = $file->store('resumes', 'local');
+
+        $text = $this->extractPdfText($file->getRealPath());
+
+        $candidate->update([
+            'resume_path' => $path,
+            'resume_text' => $text !== '' ? $text : $candidate->resume_text,
+        ]);
+
+        return response()->json($candidate->fresh());
+    }
+
+    /**
+     * Generic PDF-to-text extraction from a base64-encoded payload.
+     * Used by resume/bulk-import upload widgets that don't have a candidate yet.
+     */
+    public function parsePdf(Request $request)
+    {
+        $request->validate([
+            'pdf_base64' => ['required', 'string'],
+        ]);
+
+        $binary = base64_decode($request->input('pdf_base64'), true);
+
+        if ($binary === false || $binary === '') {
+            throw ValidationException::withMessages(['pdf_base64' => 'Некорректные base64-данные файла']);
+        }
+
+        if (strlen($binary) > self::MAX_RESUME_KB * 1024) {
+            throw ValidationException::withMessages(['pdf_base64' => 'Файл слишком большой (максимум 10MB)']);
+        }
+
+        if (! str_starts_with($binary, '%PDF')) {
+            throw ValidationException::withMessages(['pdf_base64' => 'Файл не является PDF']);
+        }
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'resume_');
+        file_put_contents($tmpPath, $binary);
+
+        try {
+            $text = $this->extractPdfText($tmpPath);
+        } finally {
+            @unlink($tmpPath);
+        }
+
+        return response()->json(['text' => $text]);
+    }
+
+    private function extractPdfText(string $path): string
+    {
+        try {
+            $parser = new PdfParser;
+            $pdf = $parser->parseFile($path);
+
+            return trim($pdf->getText());
+        } catch (\Throwable $e) {
+            report($e);
+
+            return '';
+        }
     }
 }

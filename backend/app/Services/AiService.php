@@ -20,7 +20,7 @@ class AiService
             try {
                 return $this->callProvider($candidate, $apiKey);
             } catch (\Throwable $e) {
-                report($e);
+                $this->reportProviderFailure($e, $apiKey);
                 // fall through to heuristic
             }
         }
@@ -63,11 +63,61 @@ class AiService
 
     private function buildPrompt(Candidate $candidate): string
     {
-        return "Кандидат: {$candidate->full_name}\n"
-            ."Должность: {$candidate->position}\n"
+        return "Должность: {$candidate->position}\n"
             ."Город: {$candidate->city}\n"
             ."Источник: {$candidate->source}\n"
-            ."Резюме:\n".($candidate->resume_text ?: '(текст резюме не предоставлен)');
+            ."Резюме:\n".self::sanitizeResumeText($candidate->resume_text);
+    }
+
+    /**
+     * Strip personal data (emails, phone numbers, leading ФИО) from resume text
+     * before it is sent to an external AI provider.
+     */
+    public static function sanitizeResumeText(?string $text): string
+    {
+        if (! $text || trim($text) === '') {
+            return '(текст резюме не предоставлен)';
+        }
+
+        $sanitized = $text;
+
+        // Email addresses
+        $sanitized = preg_replace(
+            '/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/u',
+            '[email]',
+            $sanitized
+        );
+
+        // Phone numbers: +7 (xxx) xxx-xx-xx, 8xxxxxxxxxx, xxx-xxx-xxxx, with spaces/dashes/parentheses
+        $sanitized = preg_replace(
+            '/(?<!\d)(\+?\d[\d\-\s\(\)]{7,}\d)(?!\d)/u',
+            '[phone]',
+            $sanitized
+        );
+
+        // Explicit ФИО pattern at the very start of the resume (e.g. "Иванов Иван Иванович")
+        $sanitized = preg_replace(
+            '/^\s*[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+)?\s*(\r?\n|$)/u',
+            "[имя]\n",
+            $sanitized,
+            1
+        );
+
+        return $sanitized;
+    }
+
+    /**
+     * Log an AI provider failure without ever exposing the API key.
+     */
+    private function reportProviderFailure(\Throwable $e, string $apiKey): void
+    {
+        $message = $e->getMessage();
+
+        if ($apiKey !== '') {
+            $message = str_replace($apiKey, '[redacted]', $message);
+        }
+
+        report(new \RuntimeException('AI provider call failed: '.$message));
     }
 
     /**

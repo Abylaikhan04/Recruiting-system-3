@@ -47,8 +47,8 @@ export default function Layout() {
 
   useEffect(() => {
     const check = () => {
-      api.get('/meetings').then((r) => {
-        const meetings: any[] = r.data
+      api.get('/meetings', { params: { per_page: 200 } }).then((r) => {
+        const meetings: any[] = r.data.data ?? r.data
         const now = Date.now()
         meetings.forEach((m) => {
           const diff = new Date(m.starts_at).getTime() - now

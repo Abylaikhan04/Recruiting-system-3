@@ -99,7 +99,7 @@ function UsersManagement() {
   const [show, setShow] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'recruiter', position: '', phone: '', department_id: '' })
 
-  const load = () => api.get('/users').then((r) => setUsers(r.data))
+  const load = () => api.get('/users', { params: { per_page: 100 } }).then((r) => setUsers(r.data.data ?? r.data))
   useEffect(() => { load(); api.get('/departments').then((r) => setDepartments(r.data)) }, [])
 
   const create = async () => {

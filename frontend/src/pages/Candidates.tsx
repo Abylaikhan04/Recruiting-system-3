@@ -9,12 +9,10 @@ import { usePdfUpload } from '../hooks/usePdfUpload'
 
 interface Paginated {
   data: Candidate[]
-  meta: {
-    current_page: number
-    last_page: number
-    total: number
-    per_page: number
-  }
+  current_page: number
+  last_page: number
+  total: number
+  per_page: number
 }
 
 const emptyForm = {
@@ -30,6 +28,9 @@ export default function Candidates() {
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [batchLoading, setBatchLoading] = useState(false)
+  const [bulkStage, setBulkStage] = useState('')
+  const [bulkRecruiter, setBulkRecruiter] = useState('')
+  const [bulkLoading, setBulkLoading] = useState(false)
   const [pageNum, setPageNum] = useState(1)
   const [recruiters, setRecruiters] = useState<{ id: number; name: string }[]>([])
   const [showAdd, setShowAdd] = useState(false)
@@ -112,11 +113,49 @@ export default function Candidates() {
     setSelectedIds((prev) => ids.every((id) => prev.includes(id)) ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])])
   }
 
+  const bulkExportSelected = async () => {
+    if (selectedIds.length === 0) return
+    const r = await api.post('/candidates/bulk-export', { ids: selectedIds }, { responseType: 'blob' })
+    const blob = new Blob([r.data], { type: 'text/csv' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'candidates_export.csv'
+    a.click()
+  }
+
+  const applyBulkStage = async () => {
+    if (!bulkStage || selectedIds.length === 0) return
+    setBulkLoading(true)
+    try {
+      const r = await api.post('/candidates/bulk-status-update', { ids: selectedIds, stage: bulkStage })
+      alert(r.data.message)
+      setBulkStage('')
+      setSelectedIds([])
+      load()
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
+  const applyBulkRecruiter = async () => {
+    if (!bulkRecruiter || selectedIds.length === 0) return
+    setBulkLoading(true)
+    try {
+      const r = await api.post('/candidates/bulk-assign-recruiter', { ids: selectedIds, recruiter_id: Number(bulkRecruiter) })
+      alert(r.data.message)
+      setBulkRecruiter('')
+      setSelectedIds([])
+      load()
+    } finally {
+      setBulkLoading(false)
+    }
+  }
+
   return (
     <div>
       <PageHeader
         title="Кандидаты"
-        subtitle={page ? `Всего: ${page.meta.total}` : ''}
+        subtitle={page ? `Всего: ${page.total}` : ''}
         action={
           <div className="flex flex-wrap gap-2">
             {selectedIds.length > 0 && (
@@ -144,6 +183,28 @@ export default function Candidates() {
           </div>
         }
       />
+
+      {selectedIds.length > 0 && (
+        <div className="card mb-4 flex flex-wrap items-center gap-2 border border-brand-200 bg-brand-50 p-3">
+          <span className="text-sm font-medium text-slate-700">Выбрано: {selectedIds.length}</span>
+          <button className="btn-outline" disabled={bulkLoading} onClick={bulkExportSelected}><Download size={16} /> Экспорт CSV</button>
+          <select className="input w-auto" value={bulkStage} onChange={(e) => setBulkStage(e.target.value)}>
+            <option value="">Изменить этап…</option>
+            {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+          <button className="btn-outline" disabled={bulkLoading || !bulkStage} onClick={applyBulkStage}>Применить этап</button>
+          {user?.role === 'admin' && (
+            <>
+              <select className="input w-auto" value={bulkRecruiter} onChange={(e) => setBulkRecruiter(e.target.value)}>
+                <option value="">Назначить рекрутера…</option>
+                {recruiters.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <button className="btn-outline" disabled={bulkLoading || !bulkRecruiter} onClick={applyBulkRecruiter}>Назначить</button>
+            </>
+          )}
+          <button className="btn-outline" onClick={() => setSelectedIds([])}>Отменить выбор</button>
+        </div>
+      )}
 
       <div className="card mb-4 p-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -240,12 +301,12 @@ export default function Candidates() {
           </table>
         </div>
 
-        {page && page.meta.last_page > 1 && (
+        {page && page.last_page > 1 && (
           <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
-            <span className="text-slate-400">Стр. {page.meta.current_page} из {page.meta.last_page}</span>
+            <span className="text-slate-400">Стр. {page.current_page} из {page.last_page}</span>
             <div className="flex gap-2">
               <button className="btn-outline" disabled={pageNum <= 1} onClick={() => setPageNum((p) => p - 1)}>Назад</button>
-              <button className="btn-outline" disabled={pageNum >= page.meta.last_page} onClick={() => setPageNum((p) => p + 1)}>Вперёд</button>
+              <button className="btn-outline" disabled={pageNum >= page.last_page} onClick={() => setPageNum((p) => p + 1)}>Вперёд</button>
             </div>
           </div>
         )}

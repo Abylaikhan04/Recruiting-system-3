@@ -18,7 +18,7 @@ class MeetingController extends Controller
             $query->where('starts_at', '>=', now());
         }
 
-        return response()->json($query->orderBy('starts_at')->get());
+        return response()->json($query->orderBy('starts_at')->paginate($request->integer('per_page', 20)));
     }
 
     public function store(Request $request)
@@ -38,6 +38,8 @@ class MeetingController extends Controller
 
     public function update(Request $request, Meeting $meeting)
     {
+        abort_unless($request->user()->isAdmin() || $meeting->user_id === $request->user()->id, 403);
+
         $data = $request->validate([
             'title' => ['sometimes', 'string'],
             'starts_at' => ['sometimes', 'date'],
@@ -51,8 +53,10 @@ class MeetingController extends Controller
         return response()->json($meeting->fresh());
     }
 
-    public function destroy(Meeting $meeting)
+    public function destroy(Request $request, Meeting $meeting)
     {
+        abort_unless($request->user()->isAdmin() || $meeting->user_id === $request->user()->id, 403);
+
         $meeting->delete();
 
         return response()->json(['message' => 'Удалено']);

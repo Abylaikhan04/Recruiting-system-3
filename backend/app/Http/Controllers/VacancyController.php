@@ -21,7 +21,7 @@ class VacancyController extends Controller
             $query->where('title', 'ilike', '%'.$request->string('search').'%');
         }
 
-        return response()->json($query->latest()->get());
+        return response()->json($query->latest()->paginate($request->integer('per_page', 20)));
     }
 
     public function store(Request $request)
@@ -44,6 +44,8 @@ class VacancyController extends Controller
 
     public function update(Request $request, Vacancy $vacancy)
     {
+        abort_unless($request->user()->isAdmin() || $vacancy->recruiter_id === $request->user()->id, 403);
+
         $data = $request->validate([
             'title' => ['sometimes', 'string'],
             'department_id' => ['nullable', 'exists:departments,id'],
@@ -60,8 +62,10 @@ class VacancyController extends Controller
         return response()->json($vacancy->fresh());
     }
 
-    public function destroy(Vacancy $vacancy)
+    public function destroy(Request $request, Vacancy $vacancy)
     {
+        abort_unless($request->user()->isAdmin() || $vacancy->recruiter_id === $request->user()->id, 403);
+
         $vacancy->delete();
 
         return response()->json(['message' => 'Удалено']);

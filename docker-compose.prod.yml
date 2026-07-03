@@ -1,0 +1,87 @@
+# Продакшен-оверлей поверх docker-compose.yml.
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Добавляет: APP_ENV=production/APP_DEBUG=false, HTTPS (nginx + certbot) на
+# фронтовом контейнере, автопродление сертификата и ежедневный бэкап Postgres.
+#
+# Перед первым запуском см. раздел "Продакшен-деплой" в README.md — там же
+# шаги для получения первого Let's Encrypt сертификата.
+
+volumes:
+  certbot_conf:
+    driver: local
+  certbot_www:
+    driver: local
+  db_backups:
+    driver: local
+
+services:
+
+  backend:
+    environment:
+      APP_ENV:   production
+      APP_DEBUG: "false"
+
+  # ── Frontend/edge nginx: теперь единственная точка входа (80 + 443) ─────
+  frontend:
+    environment:
+      DOMAIN: ${DOMAIN:?укажите DOMAIN в .env, например recruitflow.company.kz}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/nginx.prod.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+
+  # ── Certbot: автопродление сертификата раз в 12 часов ───────────────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: rf_certbot
+    restart: unless-stopped
+    networks: [app]
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    entrypoint: >
+      sh -c "trap exit TERM;
+             while :; do
+               certbot renew --webroot -w /var/www/certbot --quiet;
+               sleep 12h;
+             done"
+
+  # ── Ежедневный бэкап Postgres (pg_dump + ротация по BACKUP_RETENTION_DAYS) ──
+  backup:
+    image: postgres:16-alpine
+    container_name: rf_backup
+    restart: unless-stopped
+    networks: [app]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST:     db
+      PGPORT:     5432
+      PGDATABASE: ${DB_DATABASE:-recruitflow}
+      PGUSER:     ${DB_USERNAME:-recruitflow}
+      PGPASSWORD: ${DB_PASSWORD:-secret}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - db_backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "[backup] старт: интервал 24ч, хранение $${BACKUP_RETENTION_DAYS} дней";
+        while true; do
+          TS=$$(date +%Y%m%d_%H%M%S);
+          FILE="/backups/recruitflow_$${TS}.sql.gz";
+          echo "[backup] $$(date): pg_dump -> $$FILE";
+          if pg_dump | gzip > "$$FILE"; then
+            echo "[backup] OK ($$(du -h "$$FILE" | cut -f1))";
+          else
+            echo "[backup] ОШИБКА pg_dump" >&2;
+            rm -f "$$FILE";
+          fi;
+          find /backups -name 'recruitflow_*.sql.gz' -mtime "+$${BACKUP_RETENTION_DAYS}" -delete;
+          sleep 86400;
+        done

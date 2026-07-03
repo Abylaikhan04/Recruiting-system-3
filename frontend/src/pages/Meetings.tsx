@@ -94,7 +94,7 @@ export default function Meetings() {
   const emptyForm = { title: '', starts_at: '', duration_min: 30, location: '', notes: '', candidate_id: '' }
   const [form, setForm] = useState(emptyForm)
 
-  const load = () => api.get('/meetings').then((r) => setMeetings(r.data))
+  const load = () => api.get('/meetings', { params: { per_page: 200 } }).then((r) => setMeetings(r.data.data ?? r.data))
   useEffect(() => {
     load()
     api.get('/candidates', { params: { per_page: 200 } }).then((r) => setCandidates(r.data.data ?? []))

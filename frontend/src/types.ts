@@ -36,6 +36,7 @@ export interface Candidate {
   comment?: string
   resume_text?: string
   resume_url?: string
+  resume_path?: string
   age?: number | null
   telegram?: string | null
   vacancy_id?: number | null

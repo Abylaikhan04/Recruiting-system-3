@@ -35,7 +35,7 @@ export default function HiringRequests() {
   const canManage = user?.role === 'admin' || user?.role === 'recruiter'
   const isAdmin = user?.role === 'admin'
 
-  const load = () => api.get('/hiring-requests').then((r) => setRequests(r.data))
+  const load = () => api.get('/hiring-requests', { params: { per_page: 100 } }).then((r) => setRequests(r.data.data ?? r.data))
   useEffect(() => {
     load()
     api.get('/departments').then((r) => setDepartments(r.data))

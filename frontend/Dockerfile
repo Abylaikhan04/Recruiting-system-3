@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Install dependencies first (maximises layer-cache reuse)
 COPY package.json package-lock.json* ./
-RUN npm install --ignore-scripts
+RUN npm install --ignore-scripts --loglevel=verbose || (echo "npm install failed" >&2 && exit 1)
 
 COPY . .
 

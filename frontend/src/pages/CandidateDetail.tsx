@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
-  ArrowLeft, Sparkles, Send, FileText, MessageSquare, StickyNote, History, Phone, Mail, MapPin, Upload, Download,
+  ArrowLeft, Sparkles, Send, FileText, MessageSquare, StickyNote, History, Phone, Mail, MapPin, Upload, Download, Clock,
 } from 'lucide-react'
 import api from '../api'
 import { Candidate, AiAnalysis, STAGES, SOURCES, stageColor, stageLabel } from '../types'
 import { LoadingState } from '../components/ui'
-import { usePdfUpload } from '../hooks/usePdfUpload'
 
-type Tab = 'overview' | 'notes' | 'whatsapp' | 'ai' | 'history'
+type Tab = 'overview' | 'timeline' | 'notes' | 'whatsapp' | 'ai' | 'history'
 
 export default function CandidateDetail() {
   const { id } = useParams()
@@ -17,15 +16,34 @@ export default function CandidateDetail() {
   const [analyzing, setAnalyzing] = useState(false)
   const [vacancies, setVacancies] = useState<{ id: number; title: string }[]>([])
   const [analyzeVacancyId, setAnalyzeVacancyId] = useState('')
+  const [resumeUploading, setResumeUploading] = useState(false)
 
   const load = () => api.get<Candidate>(`/candidates/${id}`).then((r) => setC(r.data))
-  const { pdfLoading, handlePdfUpload } = usePdfUpload(async (text) => {
-    if (!c) return
-    await api.put(`/candidates/${c.id}`, { resume_text: text })
-    await load()
-  })
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !c) return
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      alert('Разрешены только PDF-файлы')
+      e.target.value = ''
+      return
+    }
+    setResumeUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('resume', file)
+      await api.post(`/candidates/${c.id}/resume`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      await load()
+    } catch (err: any) {
+      alert('Не удалось загрузить резюме: ' + (err.response?.data?.message || err.message))
+    } finally {
+      setResumeUploading(false)
+      e.target.value = ''
+    }
+  }
   useEffect(() => { load() }, [id])
-  useEffect(() => { api.get<{ id: number; title: string }[]>('/vacancies').then((r) => setVacancies(r.data)) }, [])
+  useEffect(() => { api.get<{ id: number; title: string }[]>('/vacancies', { params: { per_page: 100 } }).then((r) => setVacancies((r.data as any).data ?? r.data)) }, [])
   useEffect(() => { if (c?.vacancy_id) setAnalyzeVacancyId(String(c.vacancy_id)) }, [c?.id])
 
   if (!c) return <LoadingState />
@@ -61,6 +79,7 @@ export default function CandidateDetail() {
 
   const tabs: { key: Tab; label: string; icon: any }[] = [
     { key: 'overview', label: 'Обзор', icon: FileText },
+    { key: 'timeline', label: 'Лента', icon: Clock },
     { key: 'notes', label: 'Заметки', icon: StickyNote },
     { key: 'whatsapp', label: 'WhatsApp', icon: MessageSquare },
     { key: 'ai', label: 'ИИ-аналитика', icon: Sparkles },
@@ -175,8 +194,8 @@ export default function CandidateDetail() {
                         <Download className="w-3 h-3" /> Скачать
                       </button>
                       <label className="btn-outline text-xs cursor-pointer flex items-center gap-1 py-1 px-2">
-                        {pdfLoading ? 'Загрузка...' : <><Upload className="w-3 h-3" /> Загрузить PDF</>}
-                        <input type="file" accept=".pdf" className="hidden" onChange={handlePdfUpload} disabled={pdfLoading} />
+                        {resumeUploading ? 'Загрузка...' : <><Upload className="w-3 h-3" /> Загрузить PDF</>}
+                        <input type="file" accept=".pdf,application/pdf" className="hidden" onChange={handleResumeUpload} disabled={resumeUploading} />
                       </label>
                     </div>
                   </div>
@@ -184,6 +203,7 @@ export default function CandidateDetail() {
                     <ResumeView text={c.resume_text} />
                   </div>
                   {c.resume_url && <a href={c.resume_url} target="_blank" className="mt-3 inline-block text-sm text-brand-600 hover:underline">Открыть оригинал резюме →</a>}
+                  {c.resume_path && <div className="mt-2 text-xs text-slate-400">Файл резюме загружен на сервер (PDF)</div>}
                   <div className="mt-4">
                     <label className="label">Комментарий</label>
                     <textarea className="input h-20" defaultValue={c.comment} onBlur={(e) => e.target.value !== c.comment && updateField('comment', e.target.value)} />
@@ -191,6 +211,7 @@ export default function CandidateDetail() {
                 </div>
               )}
 
+              {tab === 'timeline' && <Timeline notes={c.notes ?? []} />}
               {tab === 'notes' && <Notes candidateId={c.id} notes={(c.notes ?? []).filter((n) => n.type === 'note')} onAdd={load} type="note" />}
               {tab === 'whatsapp' && <Whatsapp candidateId={c.id} notes={(c.notes ?? []).filter((n) => n.type === 'whatsapp')} onAdd={load} />}
               {tab === 'ai' && <AiPanel analysis={latest} onAnalyze={analyze} analyzing={analyzing} />}
@@ -215,6 +236,38 @@ export default function CandidateDetail() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function Timeline({ notes }: any) {
+  const items = [...notes].sort(
+    (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  )
+  return (
+    <div className="space-y-3">
+      {items.length === 0 && <div className="text-sm text-slate-400">Записей пока нет</div>}
+      {items.map((n: any) => (
+        <div key={n.id} className="flex items-start gap-3 text-sm">
+          <div
+            className={`mt-1.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full ${
+              n.type === 'whatsapp' ? 'bg-emerald-100 text-emerald-600' : 'bg-brand-50 text-brand-600'
+            }`}
+          >
+            {n.type === 'whatsapp' ? <MessageSquare size={13} /> : <StickyNote size={13} />}
+          </div>
+          <div className="flex-1 rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-slate-500">
+                {n.type === 'whatsapp' ? `WhatsApp · ${n.direction === 'out' ? 'исходящее' : 'входящее'}` : 'Заметка'}
+              </span>
+              <span className="text-xs text-slate-400">{new Date(n.created_at).toLocaleString('ru-RU')}</span>
+            </div>
+            <p className="mt-1 text-slate-700">{n.body}</p>
+            {n.user?.name && <div className="mt-1 text-xs text-slate-400">{n.user.name}</div>}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

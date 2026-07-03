@@ -51,7 +51,7 @@ echo "Running migrations..."
 php artisan migrate --force
 
 # Seed only if this is the first boot (errors are non-fatal)
-php artisan db:seed --force 2>/dev/null || true
+php artisan db:seed --force || true
 
 # Fix storage permissions for www worker
 chown -R www:www storage bootstrap/cache 2>/dev/null || true

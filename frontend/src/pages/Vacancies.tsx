@@ -22,7 +22,7 @@ export default function Vacancies() {
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ title: '', city: 'Алматы', position: '', salary_range: '', department_id: '', requirements: '', priority: 'medium' })
 
-  const load = () => api.get('/vacancies').then((r) => setVacancies(r.data))
+  const load = () => api.get('/vacancies', { params: { per_page: 100 } }).then((r) => setVacancies(r.data.data ?? r.data))
   useEffect(() => { load(); api.get('/departments').then((r) => setDepartments(r.data)) }, [])
 
   const create = async () => {

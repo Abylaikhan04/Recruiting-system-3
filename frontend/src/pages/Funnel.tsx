@@ -26,7 +26,7 @@ export default function Funnel() {
 
   useEffect(load, [vacancyId])
   useEffect(() => {
-    api.get<Vacancy[]>('/vacancies').then((r) => setVacancies(r.data))
+    api.get<Vacancy[]>('/vacancies', { params: { per_page: 100 } }).then((r) => setVacancies((r.data as any).data ?? r.data))
   }, [])
 
   useEffect(() => {
