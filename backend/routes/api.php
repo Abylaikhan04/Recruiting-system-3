@@ -47,6 +47,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/candidates/bulk-assign-recruiter', [CandidateController::class, 'bulkAssignRecruiter']);
     Route::post('/candidates/bulk-status-update', [CandidateController::class, 'bulkStatusUpdate']);
     Route::post('/candidates/analyze-batch', [CandidateController::class, 'analyzeBatch']);
+    Route::post('/candidates/analyze-selected', [CandidateController::class, 'analyzeSelected']);
     Route::get('/candidates/{candidate}', [CandidateController::class, 'show']);
     Route::put('/candidates/{candidate}', [CandidateController::class, 'update']);
     Route::delete('/candidates/{candidate}', [CandidateController::class, 'destroy']);

@@ -398,6 +398,42 @@ class CandidateController extends Controller
     }
 
     /**
+     * Analyze a specific set of selected candidates (checkbox selection on the list page).
+     */
+    public function analyzeSelected(Request $request, AiService $ai)
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'exists:candidates,id'],
+        ]);
+
+        $user = $request->user();
+        $query = Candidate::whereIn('id', $data['ids']);
+        if (! $user->isAdmin()) {
+            $query->where('recruiter_id', $user->id);
+        }
+        $candidates = $query->get();
+
+        foreach ($candidates as $candidate) {
+            $result = $ai->analyzeCandidate($candidate);
+            AiAnalysis::create([
+                'candidate_id' => $candidate->id,
+                'score' => $result['score'],
+                'strengths' => $result['strengths'],
+                'risks' => $result['risks'],
+                'questions' => $result['questions'],
+                'summary' => $result['summary'],
+                'created_by' => $user->id,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Проанализировано: '.$candidates->count(),
+            'count' => $candidates->count(),
+        ]);
+    }
+
+    /**
      * Upload a candidate's resume as a PDF file: stores it in private storage
      * (fills resume_path) and extracts its text (fills resume_text).
      */
