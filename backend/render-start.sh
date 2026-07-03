@@ -7,8 +7,13 @@ set -e
 
 cd /var/www
 
-echo "Running migrations..."
-php artisan migrate --force
+echo "Resetting and running migrations..."
+# Using migrate:fresh instead of migrate: the migrations ledger on Neon got
+# out of sync with actual tables during earlier failed deploy attempts
+# (departments recorded as migrated but the table itself was never
+# committed). migrate:fresh drops everything and rebuilds from a clean
+# state, avoiding that mismatch. Safe here since there is no real data yet.
+php artisan migrate:fresh --force
 
 echo "Seeding (non-fatal if it fails)..."
 php artisan db:seed --force || true
