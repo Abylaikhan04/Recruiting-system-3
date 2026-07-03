@@ -65,6 +65,12 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
     && chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Standalone start script for hosts (e.g. Render) whose "Docker Command"
+# field bypasses ENTRYPOINT and doesn't run the command through a shell.
+COPY render-start.sh /usr/local/bin/render-start.sh
+RUN sed -i 's/\r$//' /usr/local/bin/render-start.sh \
+    && chmod +x /usr/local/bin/render-start.sh
+
 EXPOSE 9000
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["php-fpm"]
